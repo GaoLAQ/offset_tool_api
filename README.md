@@ -100,31 +100,50 @@ A comprehensive Django-based API for managing carbon offset calculations and env
 
 ## API Endpoints
 
-### Authentication
+### CAD Offset Utility
 
-- `POST /api/v1/auth/register/` - Register new user
-- `POST /api/v1/auth/login/` - Login user
-- `POST /api/v1/auth/logout/` - Logout user
-- `GET /api/v1/auth/profile/` - Get user profile
-- `PUT /api/v1/auth/profile/update/` - Update user profile
+- `POST /offset` - Upload a CAD file and offset its points along their normals.
 
-### Projects
+The endpoint expects a `multipart/form-data` payload with the following fields:
 
-- `GET /api/v1/projects/` - List user projects
-- `POST /api/v1/projects/` - Create new project
-- `GET /api/v1/projects/{id}/` - Get project details
-- `PUT /api/v1/projects/{id}/` - Update project
-- `DELETE /api/v1/projects/{id}/` - Delete project
-- `GET /api/v1/projects/{id}/calculations/` - Get project calculations
-- `POST /api/v1/projects/{id}/add_calculation/` - Add calculation to project
+| Field   | Type    | Description                                           |
+| ------- | ------- | ----------------------------------------------------- |
+| `file`  | File    | CAD point export containing position and normal data. |
+| `offset`| Numeric | The offset distance to apply along each normal.       |
 
-### Offset Calculations
+Two text-based formats are supported for rapid prototyping:
 
-- `GET /api/v1/calculations/` - List user calculations
-- `POST /api/v1/calculations/` - Create new calculation
-- `GET /api/v1/calculations/{id}/` - Get calculation details
-- `PUT /api/v1/calculations/{id}/` - Update calculation
-- `DELETE /api/v1/calculations/{id}/` - Delete calculation
+1. **JSON**
+
+   ```json
+   {
+     "points": [
+       {"position": [0, 0, 0], "normal": [0, 0, 1]},
+       {"position": [1.5, 2.0, -0.5], "normal": [1, 0, 0]}
+     ]
+   }
+   ```
+
+2. **Plain text / CSV**
+
+   One point per line in the order `x y z nx ny nz` where values can be separated by
+   spaces, commas, or semicolons:
+
+   ```text
+   0 0 0 0 0 1
+   1.5,2.0,-0.5,1,0,0
+   ```
+
+The response returns the offset coordinates:
+
+```json
+{
+  "offset_points": [
+    [0.0, 0.0, 2.5],
+    [3.5, 2.0, -0.5]
+  ]
+}
+```
 
 ## Data Models
 
