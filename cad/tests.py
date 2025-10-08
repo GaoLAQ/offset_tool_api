@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import struct
 
 from django.test import Client, TestCase
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -41,6 +42,48 @@ class OffsetViewTests(TestCase):
         self.assertEqual(len(data["offset_points"]), 2)
         self.assertAlmostEqual(data["offset_points"][0][2], 1)
         self.assertAlmostEqual(data["offset_points"][1][0], 2)
+
+    def test_offset_with_ascii_stl_payload(self) -> None:
+        stl_content = """solid ascii\nfacet normal 0 0 1\n outer loop\n  vertex 0 0 0\n  vertex 1 0 0\n  vertex 0 1 0\n endloop\nendfacet\nendsolid\n"""
+        upload = SimpleUploadedFile("triangle.stl", stl_content.encode("utf-8"), content_type="model/stl")
+
+        response = self.client.post("/offset", {"offset": "0.5", "file": upload})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["offset_points"]), 3)
+        self.assertAlmostEqual(data["offset_points"][0][2], 0.5)
+
+    def test_offset_with_binary_stl_payload(self) -> None:
+        header = b"Binary STL".ljust(80, b" ")
+        triangle_count = 1
+        triangle_header = struct.pack("<I", triangle_count)
+        triangle_body = struct.pack(
+            "<12fH",
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0,
+        )
+        upload = SimpleUploadedFile(
+            "triangle-binary.stl", header + triangle_header + triangle_body, content_type="model/stl"
+        )
+
+        response = self.client.post("/offset", {"offset": "0.25", "file": upload})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["offset_points"]), 3)
+        self.assertAlmostEqual(data["offset_points"][0][2], 0.25)
 
     def test_missing_file_returns_error(self) -> None:
         response = self.client.post("/offset", {"offset": "1"})
