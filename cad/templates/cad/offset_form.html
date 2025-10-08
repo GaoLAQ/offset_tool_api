@@ -164,10 +164,11 @@
         </section>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js" integrity="sha384-0cmg1JuiGyBtnGyVE2oxIqgIf3i9HezeA7UekyYwMYyRA5AyW3ImzvvRIYJlQUWS" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js" integrity="sha384-uF/pG7BiT3EWyA1LeT8HSUEAiUQ8wOjkl7axshkD1vp97oTATsmyn10cXpk9fKYG" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/STLLoader.js" integrity="sha384-9I4pBsucjq08zuNDe0wPLZcQvTisJV0ui3C3j4Z3FWD2MOrCtFnJuxA9viYDMgOk" crossorigin="anonymous"></script>
-    <script>
+    <script type="module">
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+        import { STLLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/STLLoader.js';
+
         const form = document.getElementById('offset-form');
         const resultElement = document.getElementById('result');
         const errorElement = document.getElementById('error');
@@ -185,7 +186,7 @@
         let animationId;
         let currentMesh;
 
-        const stlLoader = new THREE.STLLoader();
+        const stlLoader = new STLLoader();
 
         function initViewer() {
             if (renderer) {
@@ -219,7 +220,7 @@
             grid.position.y = -60;
             scene.add(grid);
 
-            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.08;
             controls.enablePan = true;
