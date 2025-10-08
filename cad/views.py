@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, List, Tuple
 
 from django.http import HttpRequest, JsonResponse
+from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -107,12 +108,7 @@ def offset_view(request: HttpRequest) -> JsonResponse:
     """Handle CAD file uploads and return offset coordinates."""
 
     if request.method == "GET":
-        return JsonResponse(
-            {
-                "message": "POST a CAD file using the 'file' field and an 'offset' value to compute offset points.",
-                "required_fields": {"file": "CAD file upload", "offset": "float"},
-            }
-        )
+        return render(request, "cad/offset_form.html")
 
     uploaded_file = request.FILES.get("file")
     if uploaded_file is None:
