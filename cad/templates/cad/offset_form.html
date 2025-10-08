@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CAD Offset Tool</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at top, #f5f7fb, #dde3f0);
+            color: #1f2933;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+            padding: 2.5rem;
+            max-width: 520px;
+            width: 92vw;
+        }
+        h1 {
+            font-size: 1.9rem;
+            margin-top: 0;
+            margin-bottom: 0.75rem;
+            color: #0f172a;
+        }
+        p.description {
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            color: #475569;
+            line-height: 1.5;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #1e293b;
+        }
+        input[type="file"],
+        input[type="number"] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.65rem 0.75rem;
+            border-radius: 10px;
+            border: 1px solid rgba(148, 163, 184, 0.7);
+            background: rgba(255, 255, 255, 0.9);
+            margin-bottom: 1.25rem;
+            font-size: 1rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        input:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+        }
+        button {
+            width: 100%;
+            border: none;
+            background: linear-gradient(135deg, #2563eb, #4f46e5);
+            color: white;
+            font-weight: 600;
+            padding: 0.75rem;
+            border-radius: 999px;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(37, 99, 235, 0.25);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 15px 28px rgba(37, 99, 235, 0.35);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .result, .error {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            border-radius: 12px;
+            white-space: pre-wrap;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.95rem;
+        }
+        .result {
+            background: rgba(59, 130, 246, 0.08);
+            color: #0f172a;
+        }
+        .error {
+            background: rgba(248, 113, 113, 0.12);
+            color: #b91c1c;
+        }
+        .helper-text {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-top: -0.5rem;
+            margin-bottom: 1.25rem;
+        }
+    </style>
+</head>
+<body>
+    <main class="container" aria-labelledby="offset-heading">
+        <h1 id="offset-heading">CAD Offset Calculator</h1>
+        <p class="description">Upload a CAD point export (JSON or CSV) and provide an offset distance to project each point along its surface normal.</p>
+        <form id="offset-form" enctype="multipart/form-data" novalidate>
+            <label for="file">CAD File</label>
+            <input id="file" name="file" type="file" accept=".json,.csv,.txt" required>
+            <p class="helper-text">Accepted formats: JSON array or CSV with <code>x y z nx ny nz</code> values.</p>
+
+            <label for="offset">Offset Distance</label>
+            <input id="offset" name="offset" type="number" step="any" placeholder="e.g., 2.5" required>
+
+            <button type="submit">Calculate Offset</button>
+        </form>
+        <div id="feedback" role="status" aria-live="polite"></div>
+        <pre id="result" class="result" hidden></pre>
+        <pre id="error" class="error" hidden></pre>
+    </main>
+
+    <script>
+        const form = document.getElementById('offset-form');
+        const resultElement = document.getElementById('result');
+        const errorElement = document.getElementById('error');
+        const feedback = document.getElementById('feedback');
+        const submitButton = form.querySelector('button[type="submit"]');
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!form.checkValidity()) {
+                feedback.textContent = 'Please select a CAD file and provide an offset value.';
+                return;
+            }
+
+            const formData = new FormData(form);
+            submitButton.disabled = true;
+            feedback.textContent = 'Uploading and calculating offset…';
+            resultElement.hidden = true;
+            errorElement.hidden = true;
+
+            try {
+                const response = await fetch('/offset', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.error || 'An unexpected error occurred.');
+                }
+
+                resultElement.textContent = JSON.stringify(payload.offset_points, null, 2);
+                resultElement.hidden = false;
+                feedback.textContent = 'Offset calculation complete!';
+            } catch (error) {
+                errorElement.textContent = error.message;
+                errorElement.hidden = false;
+                feedback.textContent = 'Unable to complete the request.';
+            } finally {
+                submitButton.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
