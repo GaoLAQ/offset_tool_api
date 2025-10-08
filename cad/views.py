@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple
 
@@ -58,27 +59,131 @@ def _load_csv_points(data: str) -> Iterable[PointData]:
     return points
 
 
+def _load_stl_points_text(data: str) -> Iterable[PointData]:
+    """Parse an ASCII STL file into a sequence of points with normals."""
+
+    points: List[PointData] = []
+    current_normal: Tuple[float, float, float] | None = None
+
+    for line_number, line in enumerate(data.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        tokens = stripped.lower().split()
+        if tokens[:2] == ["facet", "normal"]:
+            original_parts = stripped.split()
+            if len(original_parts) != 5:
+                raise CADParseError(
+                    "Facet normal must include three numeric components. "
+                    f"Problem found on line {line_number}."
+                )
+            try:
+                normal_values = tuple(float(value) for value in original_parts[2:5])
+                current_normal = (
+                    float(normal_values[0]),
+                    float(normal_values[1]),
+                    float(normal_values[2]),
+                )
+            except ValueError as exc:
+                raise CADParseError(f"Invalid normal definition on line {line_number}.") from exc
+        elif tokens and tokens[0] == "vertex":
+            if current_normal is None:
+                raise CADParseError(
+                    "Encountered vertex before a facet normal definition. "
+                    f"Problem found on line {line_number}."
+                )
+            components = stripped.split()
+            if len(components) != 4:
+                raise CADParseError(
+                    "Vertex definition must include three numeric coordinates. "
+                    f"Problem found on line {line_number}."
+                )
+            try:
+                position = tuple(float(value) for value in components[1:4])
+            except ValueError as exc:
+                raise CADParseError(f"Invalid vertex definition on line {line_number}.") from exc
+            points.append(PointData(position=position, normal=current_normal))
+        elif tokens and tokens[0] == "endfacet":
+            current_normal = None
+
+    if not points:
+        raise CADParseError("No vertices were found in the provided STL file.")
+
+    return points
+
+
+def _load_stl_points_binary(data: bytes) -> Iterable[PointData]:
+    """Parse a binary STL file into a sequence of points with normals."""
+
+    if len(data) < 84:
+        raise CADParseError("Binary STL file is too small to contain any geometry.")
+
+    triangle_count = struct.unpack_from("<I", data, 80)[0]
+    expected_size = 84 + triangle_count * 50
+    if len(data) < expected_size:
+        raise CADParseError("Binary STL file is truncated and cannot be parsed.")
+
+    offset = 84
+    points: List[PointData] = []
+
+    for _ in range(triangle_count):
+        normal = struct.unpack_from("<fff", data, offset)
+        offset += 12
+        for _ in range(3):
+            position = struct.unpack_from("<fff", data, offset)
+            offset += 12
+            points.append(PointData(position=position, normal=normal))
+        offset += 2  # Skip attribute byte count
+
+    if not points:
+        raise CADParseError("Binary STL file contained no vertices.")
+
+    return points
+
+
 def parse_cad_points(uploaded_file) -> List[PointData]:
     """Parse an uploaded CAD file and return a list of points with normals."""
 
-    data = uploaded_file.read()
-    if isinstance(data, bytes):
-        try:
-            text_data = data.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise CADParseError("Uploaded file must be UTF-8 encoded text.") from exc
+    raw_data = uploaded_file.read()
+    if isinstance(raw_data, bytes):
+        binary_data = raw_data
     else:
-        text_data = str(data)
+        binary_data = str(raw_data).encode("utf-8")
 
-    text_data = text_data.strip()
-    if not text_data:
+    if not binary_data:
         raise CADParseError("Uploaded file is empty.")
 
-    # Try JSON first and fall back to a whitespace / comma separated format.
+    text_data: str | None
     try:
-        return list(_load_json_points(text_data))
-    except json.JSONDecodeError:
-        return list(_load_csv_points(text_data))
+        text_data = binary_data.decode("utf-8")
+    except UnicodeDecodeError:
+        text_data = None
+
+    if text_data is not None:
+        stripped = text_data.strip()
+        if not stripped:
+            raise CADParseError("Uploaded file is empty.")
+
+        try:
+            return list(_load_json_points(stripped))
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            return list(_load_stl_points_text(stripped))
+        except CADParseError:
+            pass
+
+        try:
+            return list(_load_csv_points(stripped))
+        except CADParseError as csv_error:
+            raise CADParseError("Unsupported CAD file format. Provide JSON, CSV, or STL data.") from csv_error
+
+    # Fall back to attempting a binary STL parse.
+    try:
+        return list(_load_stl_points_binary(binary_data))
+    except CADParseError as stl_error:
+        raise CADParseError("Unsupported CAD file format. Provide JSON, CSV, or STL data.") from stl_error
 
 
 def offset_points(points: Iterable[PointData], offset: float) -> List[Tuple[float, float, float]]:

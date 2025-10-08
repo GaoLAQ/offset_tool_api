@@ -110,11 +110,11 @@
 <body>
     <main class="container" aria-labelledby="offset-heading">
         <h1 id="offset-heading">CAD Offset Calculator</h1>
-        <p class="description">Upload a CAD point export (JSON or CSV) and provide an offset distance to project each point along its surface normal.</p>
+        <p class="description">Upload a CAD point export (JSON, CSV, or STL) and provide an offset distance to project each point along its surface normal.</p>
         <form id="offset-form" enctype="multipart/form-data" novalidate>
             <label for="file">CAD File</label>
-            <input id="file" name="file" type="file" accept=".json,.csv,.txt" required>
-            <p class="helper-text">Accepted formats: JSON array or CSV with <code>x y z nx ny nz</code> values.</p>
+            <input id="file" name="file" type="file" accept=".json,.csv,.txt,.stl" required>
+            <p class="helper-text">Accepted formats: JSON array, CSV with <code>x y z nx ny nz</code> values, or STL mesh files.</p>
 
             <label for="offset">Offset Distance</label>
             <input id="offset" name="offset" type="number" step="any" placeholder="e.g., 2.5" required>
