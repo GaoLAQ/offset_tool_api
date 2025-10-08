@@ -44,6 +44,39 @@
             margin-bottom: 0.5rem;
             color: #1e293b;
         }
+        .viewer-card {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: rgba(241, 245, 249, 0.9);
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        }
+        .viewer-card h2 {
+            margin-top: 0;
+            margin-bottom: 0.75rem;
+            font-size: 1.2rem;
+            color: #0f172a;
+        }
+        .viewer-card p {
+            margin-top: 0;
+            margin-bottom: 1rem;
+            color: #475569;
+            font-size: 0.9rem;
+        }
+        #viewer {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            border-radius: 14px;
+            overflow: hidden;
+            background: radial-gradient(circle at 30% 30%, #ffffff, #cbd5f5);
+        }
+        #viewer canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+        }
         input[type="file"],
         input[type="number"] {
             width: 100%;
@@ -110,11 +143,11 @@
 <body>
     <main class="container" aria-labelledby="offset-heading">
         <h1 id="offset-heading">CAD Offset Calculator</h1>
-        <p class="description">Upload a CAD point export (JSON, CSV, or STL) and provide an offset distance to project each point along its surface normal.</p>
+        <p class="description">Upload a CAD mesh in STL format and provide an offset distance to project each point along its surface normal.</p>
         <form id="offset-form" enctype="multipart/form-data" novalidate>
             <label for="file">CAD File</label>
-            <input id="file" name="file" type="file" accept=".json,.csv,.txt,.stl" required>
-            <p class="helper-text">Accepted formats: JSON array, CSV with <code>x y z nx ny nz</code> values, or STL mesh files.</p>
+            <input id="file" name="file" type="file" accept=".stl" required>
+            <p class="helper-text">Accepted format: Binary or ASCII STL mesh files up to 25&nbsp;MB.</p>
 
             <label for="offset">Offset Distance</label>
             <input id="offset" name="offset" type="number" step="any" placeholder="e.g., 2.5" required>
@@ -124,14 +157,163 @@
         <div id="feedback" role="status" aria-live="polite"></div>
         <pre id="result" class="result" hidden></pre>
         <pre id="error" class="error" hidden></pre>
+        <section id="viewer-card" class="viewer-card" hidden>
+            <h2>STL Preview</h2>
+            <p id="viewer-status">Interact with the mesh preview below. Use drag to orbit, scroll to zoom, and right-click to pan.</p>
+            <div id="viewer" aria-label="3D CAD preview"></div>
+        </section>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js" integrity="sha384-0cmg1JuiGyBtnGyVE2oxIqgIf3i9HezeA7UekyYwMYyRA5AyW3ImzvvRIYJlQUWS" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js" integrity="sha384-uF/pG7BiT3EWyA1LeT8HSUEAiUQ8wOjkl7axshkD1vp97oTATsmyn10cXpk9fKYG" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/STLLoader.js" integrity="sha384-9I4pBsucjq08zuNDe0wPLZcQvTisJV0ui3C3j4Z3FWD2MOrCtFnJuxA9viYDMgOk" crossorigin="anonymous"></script>
     <script>
         const form = document.getElementById('offset-form');
         const resultElement = document.getElementById('result');
         const errorElement = document.getElementById('error');
         const feedback = document.getElementById('feedback');
         const submitButton = form.querySelector('button[type="submit"]');
+        const fileInput = document.getElementById('file');
+        const viewerCard = document.getElementById('viewer-card');
+        const viewerStatus = document.getElementById('viewer-status');
+        const viewerElement = document.getElementById('viewer');
+
+        let renderer;
+        let camera;
+        let scene;
+        let controls;
+        let animationId;
+        let currentMesh;
+
+        const stlLoader = new THREE.STLLoader();
+
+        function initViewer() {
+            if (renderer) {
+                return;
+            }
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(viewerElement.clientWidth, viewerElement.clientHeight);
+            viewerElement.appendChild(renderer.domElement);
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf8fafc);
+
+            const aspect = viewerElement.clientWidth / viewerElement.clientHeight;
+            camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 2000);
+            camera.position.set(0, 0, 120);
+
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x2d3748, 0.9);
+            scene.add(hemiLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.75);
+            dirLight.position.set(80, 80, 120);
+            scene.add(dirLight);
+
+            const backLight = new THREE.DirectionalLight(0xffffff, 0.35);
+            backLight.position.set(-60, -40, -90);
+            scene.add(backLight);
+
+            const grid = new THREE.GridHelper(180, 18, 0xa5b4fc, 0xcbd5f5);
+            grid.position.y = -60;
+            scene.add(grid);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.enablePan = true;
+
+            animate();
+            window.addEventListener('resize', handleResize);
+        }
+
+        function handleResize() {
+            if (!renderer || !camera) return;
+            const { clientWidth, clientHeight } = viewerElement;
+            camera.aspect = clientWidth / clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(clientWidth, clientHeight);
+        }
+
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+            if (controls) {
+                controls.update();
+            }
+            renderer.render(scene, camera);
+        }
+
+        function clearCurrentMesh() {
+            if (currentMesh && scene) {
+                scene.remove(currentMesh);
+                currentMesh.geometry.dispose();
+                currentMesh.material.dispose();
+                currentMesh = null;
+            }
+        }
+
+        function fitCameraToObject(object) {
+            const box = new THREE.Box3().setFromObject(object);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fitDistance = maxDim / (2 * Math.atan(Math.PI * camera.fov / 360));
+            const direction = camera.position.clone().sub(controls.target).normalize();
+            controls.target.copy(center);
+            camera.position.copy(center).add(direction.multiplyScalar(fitDistance * 1.4));
+            camera.near = maxDim / 100;
+            camera.far = maxDim * 100;
+            camera.updateProjectionMatrix();
+        }
+
+        async function previewStl(file) {
+            if (!file) {
+                viewerCard.hidden = true;
+                clearCurrentMesh();
+                return;
+            }
+
+            viewerStatus.textContent = 'Preparing STL preview…';
+            viewerCard.hidden = false;
+            initViewer();
+            handleResize();
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const geometry = stlLoader.parse(arrayBuffer);
+                geometry.computeVertexNormals();
+                geometry.center();
+
+                clearCurrentMesh();
+
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0x4f46e5,
+                    metalness: 0.1,
+                    roughness: 0.8,
+                    side: THREE.DoubleSide
+                });
+                currentMesh = new THREE.Mesh(geometry, material);
+                scene.add(currentMesh);
+                fitCameraToObject(currentMesh);
+                viewerStatus.textContent = `Previewing: ${file.name}`;
+            } catch (parseError) {
+                console.error(parseError);
+                viewerStatus.textContent = 'Unable to render preview for this STL file.';
+            }
+        }
+
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file && file.name.toLowerCase().endsWith('.stl')) {
+                previewStl(file);
+            } else {
+                viewerCard.hidden = true;
+                viewerStatus.textContent = 'Select an STL file to preview its geometry.';
+                clearCurrentMesh();
+            }
+        });
 
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -166,6 +348,15 @@
                 feedback.textContent = 'Unable to complete the request.';
             } finally {
                 submitButton.disabled = false;
+            }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!renderer) return;
+            if (document.hidden) {
+                cancelAnimationFrame(animationId);
+            } else {
+                animate();
             }
         });
     </script>
