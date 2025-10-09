@@ -207,6 +207,55 @@ def offset_points(points: Iterable[PointData], offset: float) -> List[Tuple[floa
     return result
 
 
+def _generate_ascii_stl(
+    points: List[PointData],
+    positions: Iterable[Tuple[float, float, float]] | None = None,
+    *,
+    solid_name: str,
+) -> str | None:
+    """Create a minimal ASCII STL representation from triangle point data.
+
+    The helper expects triples of vertices describing each triangle. If the
+    points cannot form complete triangles (i.e. the total vertex count is not
+    divisible by three) the function returns ``None`` and the caller can
+    gracefully skip STL generation.
+    """
+
+    vertex_positions: List[Tuple[float, float, float]]
+    if positions is None:
+        vertex_positions = [point.position for point in points]
+    else:
+        vertex_positions = list(positions)
+        if len(vertex_positions) != len(points):
+            return None
+
+    if len(points) % 3 != 0:
+        return None
+
+    def format_float(value: float) -> str:
+        # ``:.6f`` keeps the STL readable while providing sufficient precision
+        return f"{value:.6f}"
+
+    lines: List[str] = [f"solid {solid_name}"]
+    for index in range(0, len(points), 3):
+        normal = points[index].normal
+        vertices = vertex_positions[index : index + 3]
+        lines.append(
+            "  facet normal "
+            + " ".join(format_float(component) for component in normal)
+        )
+        lines.append("    outer loop")
+        for vertex in vertices:
+            lines.append(
+                "      vertex "
+                + " ".join(format_float(component) for component in vertex)
+            )
+        lines.append("    endloop")
+        lines.append("  endfacet")
+    lines.append(f"endsolid {solid_name}")
+    return "\n".join(lines)
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def offset_view(request: HttpRequest) -> JsonResponse:
@@ -230,4 +279,16 @@ def offset_view(request: HttpRequest) -> JsonResponse:
     except CADParseError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 
-    return JsonResponse({"offset_points": offset_positions})
+    response_payload: dict[str, object] = {"offset_points": offset_positions}
+
+    source_stl = _generate_ascii_stl(points, solid_name="source_mesh")
+    if source_stl is not None:
+        response_payload["source_stl"] = source_stl
+
+        offset_stl = _generate_ascii_stl(
+            points, offset_positions, solid_name="offset_mesh"
+        )
+        if offset_stl is not None:
+            response_payload["offset_stl"] = offset_stl
+
+    return JsonResponse(response_payload)
