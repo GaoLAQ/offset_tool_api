@@ -30,6 +30,7 @@ class OffsetViewTests(TestCase):
         self.assertIn("offset_points", data)
         self.assertAlmostEqual(data["offset_points"][0][2], 2.5)
         self.assertAlmostEqual(data["offset_points"][1][0], 1 + 2.5)
+        self.assertEqual(data["source_points"], [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
         self.assertNotIn("source_stl", data)
 
     def test_offset_with_csv_payload(self) -> None:
@@ -43,6 +44,7 @@ class OffsetViewTests(TestCase):
         self.assertEqual(len(data["offset_points"]), 2)
         self.assertAlmostEqual(data["offset_points"][0][2], 1)
         self.assertAlmostEqual(data["offset_points"][1][0], 2)
+        self.assertEqual(data["source_points"], [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
 
     def test_offset_with_ascii_stl_payload(self) -> None:
         stl_content = """solid ascii\nfacet normal 0 0 1\n outer loop\n  vertex 0 0 0\n  vertex 1 0 0\n  vertex 0 1 0\n endloop\nendfacet\nendsolid\n"""
@@ -54,6 +56,10 @@ class OffsetViewTests(TestCase):
         data = response.json()
         self.assertEqual(len(data["offset_points"]), 3)
         self.assertAlmostEqual(data["offset_points"][0][2], 0.5)
+        self.assertEqual(
+            data["source_points"],
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        )
         self.assertIn("source_stl", data)
         self.assertIn("offset_stl", data)
         self.assertIn("solid source_mesh", data["source_stl"])
@@ -89,6 +95,10 @@ class OffsetViewTests(TestCase):
         data = response.json()
         self.assertEqual(len(data["offset_points"]), 3)
         self.assertAlmostEqual(data["offset_points"][0][2], 0.25)
+        self.assertEqual(
+            data["source_points"],
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        )
         self.assertIn("source_stl", data)
         self.assertIn("offset_stl", data)
 

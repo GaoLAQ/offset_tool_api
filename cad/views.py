@@ -279,7 +279,10 @@ def offset_view(request: HttpRequest) -> JsonResponse:
     except CADParseError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 
-    response_payload: dict[str, object] = {"offset_points": offset_positions}
+    response_payload: dict[str, object] = {
+        "offset_points": offset_positions,
+        "source_points": [list(point.position) for point in points],
+    }
 
     source_stl = _generate_ascii_stl(points, solid_name="source_mesh")
     if source_stl is not None:

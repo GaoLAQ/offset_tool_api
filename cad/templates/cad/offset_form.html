@@ -192,13 +192,14 @@
         let scene;
         let controls;
         let animationId;
-        let currentMesh;
-        let offsetMesh;
+        let currentRenderable;
+        let offsetRenderable;
         let geometryCenter;
+        let pointDisplaySize = 1;
 
         const stlLoader = new STLLoader();
         const textEncoder = new TextEncoder();
-        const offsetMaterial = new THREE.MeshStandardMaterial({
+        const offsetSurfaceMaterial = new THREE.MeshStandardMaterial({
             color: 0x0ea5e9,
             transparent: true,
             opacity: 0.55,
@@ -207,6 +208,17 @@
             polygonOffsetFactor: -1,
             polygonOffsetUnits: -1
         });
+
+        function createOffsetPointMaterial() {
+            return new THREE.PointsMaterial({
+                color: 0x0ea5e9,
+                size: pointDisplaySize,
+                sizeAttenuation: true,
+                transparent: true,
+                opacity: 0.85,
+                depthWrite: false
+            });
+        }
 
         function initViewer() {
             if (renderer) {
@@ -265,22 +277,39 @@
             renderer.render(scene, camera);
         }
 
-        function clearOffsetMesh() {
-            if (offsetMesh && scene) {
-                scene.remove(offsetMesh);
-                offsetMesh.geometry.dispose();
-                offsetMesh = null;
+        function disposeMaterialIfNeeded(object) {
+            if (!object) return;
+            const { material } = object;
+            if (Array.isArray(material)) {
+                material.forEach((item) => {
+                    if (item && typeof item.dispose === 'function') {
+                        item.dispose();
+                    }
+                });
+            } else if (material && material.dispose) {
+                material.dispose();
             }
         }
 
-        function clearCurrentMesh() {
-            if (currentMesh && scene) {
-                scene.remove(currentMesh);
-                currentMesh.geometry.dispose();
-                currentMesh.material.dispose();
-                currentMesh = null;
+        function clearOffsetRenderable() {
+            if (offsetRenderable && scene) {
+                scene.remove(offsetRenderable);
+                offsetRenderable.geometry.dispose();
+                if (offsetRenderable instanceof THREE.Points) {
+                    disposeMaterialIfNeeded(offsetRenderable);
+                }
+                offsetRenderable = null;
             }
-            clearOffsetMesh();
+        }
+
+        function clearCurrentRenderable() {
+            if (currentRenderable && scene) {
+                scene.remove(currentRenderable);
+                currentRenderable.geometry.dispose();
+                disposeMaterialIfNeeded(currentRenderable);
+                currentRenderable = null;
+            }
+            clearOffsetRenderable();
             geometryCenter = undefined;
         }
 
@@ -313,7 +342,18 @@
             });
         }
 
-        function updateCurrentMeshFromGeometry(geometry) {
+        function createPointMaterial() {
+            return new THREE.PointsMaterial({
+                color: 0x4f46e5,
+                size: pointDisplaySize,
+                sizeAttenuation: true,
+                opacity: 0.9,
+                transparent: true,
+                depthWrite: false
+            });
+        }
+
+        function updateCurrentRenderableFromGeometry(geometry) {
             geometry.computeVertexNormals();
             geometry.computeBoundingBox();
 
@@ -325,17 +365,60 @@
             const centeredGeometry = geometry.clone();
             centeredGeometry.translate(-center.x, -center.y, -center.z);
 
-            clearCurrentMesh();
+            clearCurrentRenderable();
 
-            currentMesh = new THREE.Mesh(centeredGeometry, createBaseMaterial());
-            scene.add(currentMesh);
-            fitCameraToObject(currentMesh);
+            currentRenderable = new THREE.Mesh(centeredGeometry, createBaseMaterial());
+            scene.add(currentRenderable);
+            fitCameraToObject(currentRenderable);
+        }
+
+        function updateCurrentRenderableFromPoints(pointList) {
+            if (!Array.isArray(pointList) || !pointList.length) {
+                viewerStatus.textContent = 'Unable to render preview for the uploaded points.';
+                clearCurrentRenderable();
+                return;
+            }
+
+            const positions = new Float32Array(pointList.length * 3);
+            for (let index = 0; index < pointList.length; index += 1) {
+                const point = pointList[index];
+                if (!Array.isArray(point) || point.length !== 3) {
+                    continue;
+                }
+                positions[index * 3] = point[0];
+                positions[index * 3 + 1] = point[1];
+                positions[index * 3 + 2] = point[2];
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.computeBoundingBox();
+
+            const sizeVector = geometry.boundingBox
+                ? geometry.boundingBox.getSize(new THREE.Vector3())
+                : new THREE.Vector3(1, 1, 1);
+            const averageDimension = (Math.abs(sizeVector.x) + Math.abs(sizeVector.y) + Math.abs(sizeVector.z)) / 3;
+            pointDisplaySize = averageDimension > 0 ? Math.max(averageDimension * 0.02, 0.75) : 1;
+
+            const center = geometry.boundingBox
+                ? geometry.boundingBox.getCenter(new THREE.Vector3())
+                : new THREE.Vector3();
+            geometryCenter = center.clone();
+
+            geometry.translate(-center.x, -center.y, -center.z);
+            geometry.computeBoundingSphere();
+
+            clearCurrentRenderable();
+
+            currentRenderable = new THREE.Points(geometry, createPointMaterial());
+            scene.add(currentRenderable);
+            fitCameraToObject(currentRenderable);
         }
 
         async function previewStl(file) {
             if (!file) {
                 viewerCard.hidden = true;
-                clearCurrentMesh();
+                clearCurrentRenderable();
                 return;
             }
 
@@ -346,7 +429,7 @@
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 const geometry = stlLoader.parse(arrayBuffer);
-                updateCurrentMeshFromGeometry(geometry);
+                updateCurrentRenderableFromGeometry(geometry);
                 viewerStatus.textContent = `Previewing: ${file.name}`;
             } catch (parseError) {
                 console.error(parseError);
@@ -378,12 +461,12 @@
             const overlayGeometry = geometry.clone();
             overlayGeometry.translate(-center.x, -center.y, -center.z);
 
-            clearOffsetMesh();
-            offsetMesh = new THREE.Mesh(overlayGeometry, offsetMaterial);
-            scene.add(offsetMesh);
-            offsetMesh.geometry.computeBoundingSphere();
+            clearOffsetRenderable();
+            offsetRenderable = new THREE.Mesh(overlayGeometry, offsetSurfaceMaterial);
+            scene.add(offsetRenderable);
+            offsetRenderable.geometry.computeBoundingSphere();
 
-            viewerStatus.textContent = 'Displaying original mesh with offset overlay.';
+            viewerStatus.textContent = 'Displaying uploaded geometry with offset overlay.';
         }
 
         function renderOffsetMeshFromStlString(stlString) {
@@ -400,7 +483,7 @@
 
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
-            clearCurrentMesh();
+            clearCurrentRenderable();
             if (!file) {
                 viewerCard.hidden = true;
                 viewerStatus.textContent = 'Select a supported file to preview its geometry.';
@@ -459,13 +542,18 @@
                     try {
                         ensureViewer();
                         const geometry = parseStlString(payload.source_stl);
-                        updateCurrentMeshFromGeometry(geometry);
+                        updateCurrentRenderableFromGeometry(geometry);
                         viewerCard.hidden = false;
                         viewerStatus.textContent = 'Preview generated from uploaded data.';
                     } catch (parseError) {
                         console.error(parseError);
                         viewerStatus.textContent = 'Unable to render preview for the generated STL mesh.';
                     }
+                } else if (payload.source_points) {
+                    ensureViewer();
+                    viewerCard.hidden = false;
+                    updateCurrentRenderableFromPoints(payload.source_points);
+                    viewerStatus.textContent = 'Preview generated from uploaded points.';
                 }
 
                 if (payload.offset_stl) {
@@ -479,7 +567,7 @@
                 errorElement.textContent = error.message;
                 errorElement.hidden = false;
                 feedback.textContent = 'Unable to complete the request.';
-                clearOffsetMesh();
+                clearOffsetRenderable();
             } finally {
                 submitButton.disabled = false;
             }
@@ -496,29 +584,35 @@
 
         function renderOffsetGeometry(offsetPoints) {
             if (!Array.isArray(offsetPoints) || !offsetPoints.length) {
-                clearOffsetMesh();
+                clearOffsetRenderable();
                 return;
             }
 
-            if (!currentMesh || !scene) {
+            if (!currentRenderable || !scene) {
                 return;
             }
 
-            const expectedCount = currentMesh.geometry.attributes.position.count;
+            const expectedCount = currentRenderable.geometry.attributes.position.count;
             if (offsetPoints.length !== expectedCount) {
                 console.warn('Offset point count does not match geometry vertex count.');
                 viewerStatus.textContent = 'Offset calculated, but preview could not render the offset mesh.';
-                clearOffsetMesh();
+                clearOffsetRenderable();
                 return;
             }
 
-            if (!offsetMesh) {
-                const overlayGeometry = currentMesh.geometry.clone();
-                offsetMesh = new THREE.Mesh(overlayGeometry, offsetMaterial);
-                scene.add(offsetMesh);
+            const isPointCloud = currentRenderable instanceof THREE.Points;
+
+            if (!offsetRenderable) {
+                const overlayGeometry = currentRenderable.geometry.clone();
+                if (isPointCloud) {
+                    offsetRenderable = new THREE.Points(overlayGeometry, createOffsetPointMaterial());
+                } else {
+                    offsetRenderable = new THREE.Mesh(overlayGeometry, offsetSurfaceMaterial);
+                }
+                scene.add(offsetRenderable);
             }
 
-            const positionAttribute = offsetMesh.geometry.attributes.position;
+            const positionAttribute = offsetRenderable.geometry.attributes.position;
             const center = geometryCenter || new THREE.Vector3();
 
             for (let index = 0; index < offsetPoints.length; index += 1) {
@@ -528,10 +622,16 @@
             }
 
             positionAttribute.needsUpdate = true;
-            offsetMesh.geometry.computeVertexNormals();
-            offsetMesh.geometry.computeBoundingSphere();
+            if (offsetRenderable instanceof THREE.Mesh) {
+                offsetRenderable.geometry.computeVertexNormals();
+            }
+            offsetRenderable.geometry.computeBoundingSphere();
 
-            viewerStatus.textContent = 'Displaying original mesh with offset overlay.';
+            if (offsetRenderable instanceof THREE.Points) {
+                offsetRenderable.material.size = pointDisplaySize;
+                offsetRenderable.material.needsUpdate = true;
+            }
+            viewerStatus.textContent = 'Displaying uploaded geometry with offset overlay.';
         }
     </script>
 </body>
