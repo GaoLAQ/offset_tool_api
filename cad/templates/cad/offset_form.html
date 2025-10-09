@@ -196,6 +196,7 @@
         let offsetRenderable;
         let geometryCenter;
         let pointDisplaySize = 1;
+        let offsetGapVector = null;
 
         const stlLoader = new STLLoader();
         const textEncoder = new TextEncoder();
@@ -311,6 +312,7 @@
             }
             clearOffsetRenderable();
             geometryCenter = undefined;
+            offsetGapVector = null;
         }
 
         function fitCameraToObject(object) {
@@ -360,7 +362,13 @@
             const center = geometry.boundingBox
                 ? geometry.boundingBox.getCenter(new THREE.Vector3())
                 : new THREE.Vector3();
+            const size = geometry.boundingBox
+                ? geometry.boundingBox.getSize(new THREE.Vector3())
+                : new THREE.Vector3(1, 1, 1);
             geometryCenter = center.clone();
+
+            const gapDistance = Math.max(size.x, size.y, size.z) || 1;
+            offsetGapVector = new THREE.Vector3(gapDistance * 0.15, 0, 0);
 
             const centeredGeometry = geometry.clone();
             centeredGeometry.translate(-center.x, -center.y, -center.z);
@@ -403,7 +411,13 @@
             const center = geometry.boundingBox
                 ? geometry.boundingBox.getCenter(new THREE.Vector3())
                 : new THREE.Vector3();
+            const size = geometry.boundingBox
+                ? geometry.boundingBox.getSize(new THREE.Vector3())
+                : new THREE.Vector3(1, 1, 1);
             geometryCenter = center.clone();
+
+            const gapDistance = (Math.abs(size.x) + Math.abs(size.y) + Math.abs(size.z)) / 3;
+            offsetGapVector = new THREE.Vector3(Math.max(gapDistance, 1) * 0.2, 0, 0);
 
             geometry.translate(-center.x, -center.y, -center.z);
             geometry.computeBoundingSphere();
@@ -465,6 +479,10 @@
             offsetRenderable = new THREE.Mesh(overlayGeometry, offsetSurfaceMaterial);
             scene.add(offsetRenderable);
             offsetRenderable.geometry.computeBoundingSphere();
+            if (offsetRenderable.position) {
+                const gapVector = offsetGapVector || new THREE.Vector3(15, 0, 0);
+                offsetRenderable.position.copy(gapVector);
+            }
 
             viewerStatus.textContent = 'Displaying uploaded geometry with offset overlay.';
         }
@@ -614,6 +632,8 @@
 
             const positionAttribute = offsetRenderable.geometry.attributes.position;
             const center = geometryCenter || new THREE.Vector3();
+            const gapVector = offsetGapVector || new THREE.Vector3(15, 0, 0);
+            offsetRenderable.position.copy(gapVector);
 
             for (let index = 0; index < offsetPoints.length; index += 1) {
                 const point = offsetPoints[index];
