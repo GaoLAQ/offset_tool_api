@@ -193,8 +193,19 @@
         let controls;
         let animationId;
         let currentMesh;
+        let offsetMesh;
+        let geometryCenter;
 
         const stlLoader = new STLLoader();
+        const offsetMaterial = new THREE.MeshStandardMaterial({
+            color: 0x0ea5e9,
+            transparent: true,
+            opacity: 0.55,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1
+        });
 
         function initViewer() {
             if (renderer) {
@@ -253,6 +264,14 @@
             renderer.render(scene, camera);
         }
 
+        function clearOffsetMesh() {
+            if (offsetMesh && scene) {
+                scene.remove(offsetMesh);
+                offsetMesh.geometry.dispose();
+                offsetMesh = null;
+            }
+        }
+
         function clearCurrentMesh() {
             if (currentMesh && scene) {
                 scene.remove(currentMesh);
@@ -260,6 +279,8 @@
                 currentMesh.material.dispose();
                 currentMesh = null;
             }
+            clearOffsetMesh();
+            geometryCenter = undefined;
         }
 
         function fitCameraToObject(object) {
@@ -293,7 +314,15 @@
                 const arrayBuffer = await file.arrayBuffer();
                 const geometry = stlLoader.parse(arrayBuffer);
                 geometry.computeVertexNormals();
-                geometry.center();
+                geometry.computeBoundingBox();
+
+                const center = geometry.boundingBox
+                    ? geometry.boundingBox.getCenter(new THREE.Vector3())
+                    : new THREE.Vector3();
+                geometryCenter = center.clone();
+
+                const centeredGeometry = geometry.clone();
+                centeredGeometry.translate(-center.x, -center.y, -center.z);
 
                 clearCurrentMesh();
 
@@ -303,7 +332,7 @@
                     roughness: 0.8,
                     side: THREE.DoubleSide
                 });
-                currentMesh = new THREE.Mesh(geometry, material);
+                currentMesh = new THREE.Mesh(centeredGeometry, material);
                 scene.add(currentMesh);
                 fitCameraToObject(currentMesh);
                 viewerStatus.textContent = `Previewing: ${file.name}`;
@@ -351,10 +380,12 @@
                 resultElement.textContent = JSON.stringify(payload.offset_points, null, 2);
                 resultElement.hidden = false;
                 feedback.textContent = 'Offset calculation complete!';
+                renderOffsetGeometry(payload.offset_points);
             } catch (error) {
                 errorElement.textContent = error.message;
                 errorElement.hidden = false;
                 feedback.textContent = 'Unable to complete the request.';
+                clearOffsetMesh();
             } finally {
                 submitButton.disabled = false;
             }
@@ -368,6 +399,46 @@
                 animate();
             }
         });
+
+        function renderOffsetGeometry(offsetPoints) {
+            if (!Array.isArray(offsetPoints) || !offsetPoints.length) {
+                clearOffsetMesh();
+                return;
+            }
+
+            if (!currentMesh || !scene) {
+                return;
+            }
+
+            const expectedCount = currentMesh.geometry.attributes.position.count;
+            if (offsetPoints.length !== expectedCount) {
+                console.warn('Offset point count does not match geometry vertex count.');
+                viewerStatus.textContent = 'Offset calculated, but preview could not render the offset mesh.';
+                clearOffsetMesh();
+                return;
+            }
+
+            if (!offsetMesh) {
+                const overlayGeometry = currentMesh.geometry.clone();
+                offsetMesh = new THREE.Mesh(overlayGeometry, offsetMaterial);
+                scene.add(offsetMesh);
+            }
+
+            const positionAttribute = offsetMesh.geometry.attributes.position;
+            const center = geometryCenter || new THREE.Vector3();
+
+            for (let index = 0; index < offsetPoints.length; index += 1) {
+                const point = offsetPoints[index];
+                const [x, y, z] = point;
+                positionAttribute.setXYZ(index, x - center.x, y - center.y, z - center.z);
+            }
+
+            positionAttribute.needsUpdate = true;
+            offsetMesh.geometry.computeVertexNormals();
+            offsetMesh.geometry.computeBoundingSphere();
+
+            viewerStatus.textContent = 'Displaying original mesh with offset overlay.';
+        }
     </script>
 </body>
 </html>
