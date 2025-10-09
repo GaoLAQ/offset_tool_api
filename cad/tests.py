@@ -30,6 +30,7 @@ class OffsetViewTests(TestCase):
         self.assertIn("offset_points", data)
         self.assertAlmostEqual(data["offset_points"][0][2], 2.5)
         self.assertAlmostEqual(data["offset_points"][1][0], 1 + 2.5)
+        self.assertNotIn("source_stl", data)
 
     def test_offset_with_csv_payload(self) -> None:
         csv_content = "0 0 0 0 0 1\n1 1 1 1 0 0"
@@ -53,6 +54,10 @@ class OffsetViewTests(TestCase):
         data = response.json()
         self.assertEqual(len(data["offset_points"]), 3)
         self.assertAlmostEqual(data["offset_points"][0][2], 0.5)
+        self.assertIn("source_stl", data)
+        self.assertIn("offset_stl", data)
+        self.assertIn("solid source_mesh", data["source_stl"])
+        self.assertIn("solid offset_mesh", data["offset_stl"])
 
     def test_offset_with_binary_stl_payload(self) -> None:
         header = b"Binary STL".ljust(80, b" ")
@@ -84,6 +89,8 @@ class OffsetViewTests(TestCase):
         data = response.json()
         self.assertEqual(len(data["offset_points"]), 3)
         self.assertAlmostEqual(data["offset_points"][0][2], 0.25)
+        self.assertIn("source_stl", data)
+        self.assertIn("offset_stl", data)
 
     def test_missing_file_returns_error(self) -> None:
         response = self.client.post("/offset", {"offset": "1"})

@@ -143,11 +143,11 @@
 <body>
     <main class="container" aria-labelledby="offset-heading">
         <h1 id="offset-heading">CAD Offset Calculator</h1>
-        <p class="description">Upload a CAD mesh in STL format and provide an offset distance to project each point along its surface normal.</p>
+        <p class="description">Upload a CAD mesh in STL format or a point cloud in JSON/CSV format and provide an offset distance to project each point along its surface normal.</p>
         <form id="offset-form" enctype="multipart/form-data" novalidate>
             <label for="file">CAD File</label>
-            <input id="file" name="file" type="file" accept=".stl" required>
-            <p class="helper-text">Accepted format: Binary or ASCII STL mesh files up to 25&nbsp;MB.</p>
+            <input id="file" name="file" type="file" accept=".stl,.json,.csv,.txt" required>
+            <p class="helper-text">Accepted formats: STL meshes or JSON/CSV point exports (up to 25&nbsp;MB).</p>
 
             <label for="offset">Offset Distance</label>
             <input id="offset" name="offset" type="number" step="any" placeholder="e.g., 2.5" required>
@@ -197,6 +197,7 @@
         let geometryCenter;
 
         const stlLoader = new STLLoader();
+        const textEncoder = new TextEncoder();
         const offsetMaterial = new THREE.MeshStandardMaterial({
             color: 0x0ea5e9,
             transparent: true,
@@ -298,6 +299,39 @@
             camera.updateProjectionMatrix();
         }
 
+        function ensureViewer() {
+            initViewer();
+            handleResize();
+        }
+
+        function createBaseMaterial() {
+            return new THREE.MeshStandardMaterial({
+                color: 0x4f46e5,
+                metalness: 0.1,
+                roughness: 0.8,
+                side: THREE.DoubleSide
+            });
+        }
+
+        function updateCurrentMeshFromGeometry(geometry) {
+            geometry.computeVertexNormals();
+            geometry.computeBoundingBox();
+
+            const center = geometry.boundingBox
+                ? geometry.boundingBox.getCenter(new THREE.Vector3())
+                : new THREE.Vector3();
+            geometryCenter = center.clone();
+
+            const centeredGeometry = geometry.clone();
+            centeredGeometry.translate(-center.x, -center.y, -center.z);
+
+            clearCurrentMesh();
+
+            currentMesh = new THREE.Mesh(centeredGeometry, createBaseMaterial());
+            scene.add(currentMesh);
+            fitCameraToObject(currentMesh);
+        }
+
         async function previewStl(file) {
             if (!file) {
                 viewerCard.hidden = true;
@@ -307,34 +341,12 @@
 
             viewerStatus.textContent = 'Preparing STL preview…';
             viewerCard.hidden = false;
-            initViewer();
-            handleResize();
+            ensureViewer();
 
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 const geometry = stlLoader.parse(arrayBuffer);
-                geometry.computeVertexNormals();
-                geometry.computeBoundingBox();
-
-                const center = geometry.boundingBox
-                    ? geometry.boundingBox.getCenter(new THREE.Vector3())
-                    : new THREE.Vector3();
-                geometryCenter = center.clone();
-
-                const centeredGeometry = geometry.clone();
-                centeredGeometry.translate(-center.x, -center.y, -center.z);
-
-                clearCurrentMesh();
-
-                const material = new THREE.MeshStandardMaterial({
-                    color: 0x4f46e5,
-                    metalness: 0.1,
-                    roughness: 0.8,
-                    side: THREE.DoubleSide
-                });
-                currentMesh = new THREE.Mesh(centeredGeometry, material);
-                scene.add(currentMesh);
-                fitCameraToObject(currentMesh);
+                updateCurrentMeshFromGeometry(geometry);
                 viewerStatus.textContent = `Previewing: ${file.name}`;
             } catch (parseError) {
                 console.error(parseError);
@@ -342,15 +354,75 @@
             }
         }
 
+        function parseStlString(stlString) {
+            const encoded = textEncoder.encode(stlString);
+            return stlLoader.parse(encoded.buffer);
+        }
+
+        function renderOffsetMeshFromGeometry(geometry) {
+            if (!scene) {
+                return;
+            }
+
+            geometry.computeVertexNormals();
+            geometry.computeBoundingBox();
+
+            const center = geometryCenter || (geometry.boundingBox
+                ? geometry.boundingBox.getCenter(new THREE.Vector3())
+                : new THREE.Vector3());
+
+            if (!geometryCenter) {
+                geometryCenter = center.clone();
+            }
+
+            const overlayGeometry = geometry.clone();
+            overlayGeometry.translate(-center.x, -center.y, -center.z);
+
+            clearOffsetMesh();
+            offsetMesh = new THREE.Mesh(overlayGeometry, offsetMaterial);
+            scene.add(offsetMesh);
+            offsetMesh.geometry.computeBoundingSphere();
+
+            viewerStatus.textContent = 'Displaying original mesh with offset overlay.';
+        }
+
+        function renderOffsetMeshFromStlString(stlString) {
+            try {
+                const geometry = parseStlString(stlString);
+                renderOffsetMeshFromGeometry(geometry);
+                return true;
+            } catch (error) {
+                console.error(error);
+                viewerStatus.textContent = 'Offset calculated, but preview could not render the generated STL.';
+                return false;
+            }
+        }
+
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
-            if (file && file.name.toLowerCase().endsWith('.stl')) {
-                previewStl(file);
-            } else {
+            clearCurrentMesh();
+            if (!file) {
                 viewerCard.hidden = true;
-                viewerStatus.textContent = 'Select an STL file to preview its geometry.';
-                clearCurrentMesh();
+                viewerStatus.textContent = 'Select a supported file to preview its geometry.';
+                return;
             }
+
+            const name = file.name.toLowerCase();
+            if (name.endsWith('.stl')) {
+                previewStl(file);
+                return;
+            }
+
+            const isPointCloud = name.endsWith('.json') || name.endsWith('.csv') || name.endsWith('.txt');
+            if (isPointCloud) {
+                viewerCard.hidden = false;
+                ensureViewer();
+                viewerStatus.textContent = 'Preview will be available after the STL conversion completes.';
+                return;
+            }
+
+            viewerCard.hidden = true;
+            viewerStatus.textContent = 'Unsupported file type. Choose STL, JSON, or CSV data.';
         });
 
         form.addEventListener('submit', async (event) => {
@@ -380,7 +452,29 @@
                 resultElement.textContent = JSON.stringify(payload.offset_points, null, 2);
                 resultElement.hidden = false;
                 feedback.textContent = 'Offset calculation complete!';
-                renderOffsetGeometry(payload.offset_points);
+
+                let offsetRendered = false;
+
+                if (payload.source_stl) {
+                    try {
+                        ensureViewer();
+                        const geometry = parseStlString(payload.source_stl);
+                        updateCurrentMeshFromGeometry(geometry);
+                        viewerCard.hidden = false;
+                        viewerStatus.textContent = 'Preview generated from uploaded data.';
+                    } catch (parseError) {
+                        console.error(parseError);
+                        viewerStatus.textContent = 'Unable to render preview for the generated STL mesh.';
+                    }
+                }
+
+                if (payload.offset_stl) {
+                    offsetRendered = renderOffsetMeshFromStlString(payload.offset_stl);
+                }
+
+                if (!offsetRendered) {
+                    renderOffsetGeometry(payload.offset_points);
+                }
             } catch (error) {
                 errorElement.textContent = error.message;
                 errorElement.hidden = false;
